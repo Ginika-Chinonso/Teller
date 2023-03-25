@@ -12,16 +12,52 @@ contract TellerTest is DiamondDeployer {
 
     function testTeller() public {
 
-        testDeployDiamond();
+        test_placeItemforSale();
 
         // call Tellet facet
         TellerFacet(address(diamond)).getTotalItems();
-        TellerFacet(address(diamond)).placeItemforSale(1);
         TellerFacet(address(diamond)).getItemforSale(1);
         TellerFacet(address(diamond)).getItemPriceinUSD(1);
-        vm.startPrank(0x0162Cd2BA40E23378Bf0FD41f919E1be075f025F);
-        ERC20(0xdAC17F958D2ee523a2206206994597C13D831ec7).approve(address(diamond), 2000 ether);
-        TellerFacet(address(diamond)).buyItem(1, 2000);
+        TellerFacet(address(diamond)).getTokenPriceinUSD(WETH);
+        vm.startPrank(0xE174c389249b0E3a4eC84d2A5667Aa4920CB77DE);
+        ERC20(YFI).approve(address(diamond), 10 ether);
+        TellerFacet(address(diamond)).buyItem(1, 1, YFI);
         vm.stopPrank();
+    }
+
+    function test_placeItemforSale() public {
+        testDeployDiamond();
+        setAggregatorAddress();
+        TellerFacet(address(diamond)).placeItemforSale(2);
+    }
+
+    function test_getItemforSale() public {
+        test_placeItemforSale();
+        TellerFacet(address(diamond)).getItemforSale(1);
+    }
+
+    function test_getItemPriceinUSD() public {
+        test_getItemforSale();
+        TellerFacet(address(diamond)).getItemPriceinUSD(1);
+    }
+
+    function test_getTokenPriceinUSD() public {
+        testDeployDiamond();
+        setAggregatorAddress();
+        TellerFacet(address(diamond)).getTokenPriceinUSD(YFI);
+    }
+
+    function test_buyItemforSale() public {
+        test_placeItemforSale();
+        vm.startPrank(0xE174c389249b0E3a4eC84d2A5667Aa4920CB77DE);
+        ERC20(YFI).approve(address(diamond), 10 ether);
+        TellerFacet(address(diamond)).buyItem(1, 1, YFI);
+        vm.stopPrank();
+    }
+
+    function setAggregatorAddress() public {
+        TellerFacet(address(diamond)).setAggregatorAddr(USDT, USDTUSD);
+        TellerFacet(address(diamond)).setAggregatorAddr(YFI, YFIUSD);
+        TellerFacet(address(diamond)).setAggregatorAddr(WETH, ETHUSD);
     }
 }

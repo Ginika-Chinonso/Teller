@@ -5,13 +5,9 @@ pragma solidity ^0.8.9;
 import "../../lib/chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
 import "../../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
 import "../../lib/openzeppelin-contracts/contracts/token/ERC721/ERC721.sol";
+import "./LibDiamond.sol";
 
 library LibTeller {
-
-    address constant ETHUSDDataFeed = 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
-    address constant USDTETHDataFeed = 0xEe9F2375b4bdF6387aa8265dD4FB8F16512A1d46;
-    address constant USDTUSDDataFeed = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
-    address constant USDTTokenAddress = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
 
     event ItemforSale(uint _itemId, uint _priceinETH);
     event ItemSold(uint _itemId, uint _priceinETH, uint _priceinUSD);
@@ -19,6 +15,7 @@ library LibTeller {
     struct TellerStorage {
         uint totalItemsforSale;
         mapping(uint => Item) itemIdtoItem;
+        mapping(address => address) tokenAddrtoAgg;
     }
 
     struct Item {
@@ -47,9 +44,35 @@ library LibTeller {
         }
     }
 
+    function buyItem(uint _itemId, uint _amount, address _tokenAddress) internal returns (Reciept memory _reciept) {
+        TellerStorage storage ts = tellerStorage();
+        uint _itemPrice = getItemPriceinUSD(_itemId);
+        uint _tokenPriceinUSD = getTokenPriceinUSD(_tokenAddress);
+        uint _buyAmount = _amount * _tokenPriceinUSD;
+        if (_buyAmount < _itemPrice) revert("Not up to price for item");
+        Item memory _item = ts.itemIdtoItem[_itemId];
+        address _itemOwner = _item.owner; 
+        ERC20(_tokenAddress).transferFrom(msg.sender, _itemOwner, _amount);
+        _reciept = Reciept(msg.sender, _itemId, _item.priceinEth, _itemPrice,block.timestamp);
+        emit ItemSold(_itemId, _item.priceinEth, _itemPrice);
+    }
+
+
     function getTotalItems() internal view returns (uint _totalItems) {
         TellerStorage storage ts = tellerStorage();
         _totalItems = ts.totalItemsforSale;
+    }
+
+    function setAggregatorAddr(address _tokenAddr, address _aggAddr) internal {
+        LibDiamond.DiamondStorage storage ds = LibDiamond.diamondStorage();
+        if (msg.sender != ds.contractOwner) revert ("Only owner can call this function");
+        TellerStorage storage ts = tellerStorage();
+        ts.tokenAddrtoAgg[_tokenAddr] = _aggAddr;
+    }
+
+    function getAggregatorAddr(address _tokenAddr) internal view returns (address _aggAddr){
+        TellerStorage storage ts = tellerStorage();
+        _aggAddr = ts.tokenAddrtoAgg[_tokenAddr];
     }
 
 
@@ -68,22 +91,20 @@ library LibTeller {
         emit ItemforSale(_item.itemId, _item.priceinEth);
     }
 
-    function getItemPriceinUSD(uint _itemId) internal view returns(uint _price) {
+    function getTokenPriceinUSD(address _tokenAddress) internal view returns(uint _tokenUSDPrice) {
         TellerStorage storage ts = tellerStorage();
-        (, int ETHUSDPrice,,,) = AggregatorV3Interface(ETHUSDDataFeed).latestRoundData();
-        _price = ts.itemIdtoItem[_itemId].priceinEth * uint(ETHUSDPrice);
+        address _tokenUSDAgg = ts.tokenAddrtoAgg[_tokenAddress];
+        address _USDTUSDAgg = ts.tokenAddrtoAgg[0xdAC17F958D2ee523a2206206994597C13D831ec7];
+        require(_tokenUSDAgg != address(0), "Token Aggregator not set");
+        (, int tokenUSDPrice,,,) = AggregatorV3Interface(_tokenUSDAgg).latestRoundData();
+        (, int USDTUSDPrice,,,) = AggregatorV3Interface(_USDTUSDAgg).latestRoundData();
+        _tokenUSDPrice = uint(tokenUSDPrice/USDTUSDPrice);
     }
 
-    function buyItem(uint _itemId, uint _amount) internal returns (Reciept memory _reciept) {
+    function getItemPriceinUSD(uint _itemId) internal view returns(uint _price) {
         TellerStorage storage ts = tellerStorage();
-        uint8 decimal = ERC20(USDTTokenAddress).decimals();
-        uint _itemPrice = getItemPriceinUSD(_itemId);
-        uint _buyAmount = _amount * (1 * 10**decimal);
-        if (_buyAmount < _itemPrice) revert("Not up to price for item");
-        Item memory _item = ts.itemIdtoItem[_itemId];
-        address _itemOwner = _item.owner;
-        IERC20(USDTTokenAddress).transferFrom(msg.sender, _itemOwner, _itemPrice);
-        _reciept = Reciept(msg.sender, _itemId, _item.priceinEth, _itemPrice,block.timestamp);
-        emit ItemSold(_itemId, _item.priceinEth, _itemPrice);
+        address _aggAddr = ts.tokenAddrtoAgg[0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2];
+        (, int ETHUSDPrice,,,) = AggregatorV3Interface(_aggAddr).latestRoundData();
+        _price = (ts.itemIdtoItem[_itemId].priceinEth * uint(ETHUSDPrice))/1e8;
     }
 }
